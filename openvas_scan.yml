@@ -1,0 +1,72 @@
+---
+- name: Escaneo OpenVAS a máquina remota
+  hosts: all
+  gather_facts: no
+  vars_prompt:
+    - name: "target_ip"
+      prompt: "Ingrese la IP del objetivo"
+      private: no
+    - name: "target_name"
+      prompt: "Ingrese el nombre del objetivo"
+      private: no
+    - name: "scan_task_name"
+      prompt: "Ingrese el nombre de la tarea de escaneo"
+      private: no
+    - name: "email_recipient"
+      prompt: "Ingrese el correo electrónico para el reporte"
+      private: no
+
+  tasks:
+    - name: Crear objetivo en OpenVAS
+      shell: |
+        gvm-cli --gmp-username admin --gmp-password admin
+        socket --socketpath /run/gvmd/gvmd.sock --xml "
+        <create_target>
+          <name>{{ target_name }}</name>
+          <hosts>{{ target_ip }}</hosts>
+          <port_list id='33d0cd82-57c6-11e1-8ed1-406186ea4fc5'/>
+        </create_target>"
+      register: target_creation_result
+
+    - name: Extraer ID del target creado
+      set_fact:
+        target_id: "{{ target_creation_result.stdout | regex_search('id=\"([a-f0-9\\-]+)\"', '\\1') | first }}"
+
+    - name: Crear tarea de escaneo en OpenVAS
+      shell: |
+        gvm-cli --gmp-username admin --gmp-password admin
+        socket --socketpath /run/gvmd/gvmd.sock --xml "
+        <create_task>
+          <name>{{ scan_task_name }}</name>
+          <target id='{{ target_id }}'/>
+          <config id='daba56c8-73ec-11df-a475-002264764cea'/>
+          <scanner id='08b69003-5fc2-4037-a479-93b440211c73' />
+        </create_task>"
+      register: task_creation_result
+
+    - name: Extraer ID de la tarea creada
+      set_fact:
+        task_id: "{{ task_creation_result.stdout | regex_search('id=\"([a-f0-9\\-]+)\"', '\\1') | first }}"
+
+    - name: Iniciar tarea de escaneo en OpenVAS
+      shell: |
+        gvm-cli --gmp-username admin --gmp-password admin
+        socket --socketpath /run/gvmd/gvmd.sock --xml "
+        <start_task task_id='{{ task_id }}' />"
+      register: task_start_result
+
+    - name: Verificar estado del escaneo
+      debug:
+        var: task_start_result.stdout
+
+    - name: Enviar correo con reporte
+      mail:
+        host: smtp.gmail.com
+        port: 587
+        username: "frank11072001@gmail.com"
+        password: "shfxnyiwipbyfrur"
+        to: "{{ email_recipient }}"
+        subject: "Reporte de Escaneo OpenVAS"
+        body: "Adjunto encontrarás el reporte del escaneo realizado."
+        attach: "/ruta/del/reporte_generado"
+        secure: starttls
